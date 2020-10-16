@@ -2546,9 +2546,9 @@ __create_virtualenv() {
     if [ ! -d "$_VIRTUALENV_DIR" ]; then
         echoinfo "Creating virtualenv ${_VIRTUALENV_DIR}"
         if [ $_PIP_ALL -eq $BS_TRUE ]; then
-            virtualenv --no-site-packages "${_VIRTUALENV_DIR}" || return 1
+            python3 -m venv "${_VIRTUALENV_DIR}" || return 1
         else
-            virtualenv --system-site-packages "${_VIRTUALENV_DIR}" || return 1
+            python3 -m venv --system-site-packages "${_VIRTUALENV_DIR}" || return 1
         fi
     fi
     return 0
@@ -2561,8 +2561,8 @@ __create_virtualenv() {
 #----------------------------------------------------------------------------------------------------------------------
 __activate_virtualenv() {
     set +o nounset
-    # Is virtualenv empty
-    if [ -z "$_VIRTUALENV_DIR" ]; then
+    # check if venv is active
+    if [ -z "$VIRTUAL_ENV" ]; then
         __create_virtualenv || return 1
         # shellcheck source=/dev/null
         . "${_VIRTUALENV_DIR}/bin/activate" || return 1
@@ -2635,11 +2635,6 @@ __install_pip_deps() {
     # Install virtualenv to system pip before activating virtualenv if thats going to be used
     # We assume pip pkg is installed since that is distro specific
     if [ "$_VIRTUALENV_DIR" != "null" ]; then
-        if ! __check_command_exists pip; then
-            echoerror "Pip not installed: required for -a installs"
-            exit 1
-        fi
-        pip install -U virtualenv
         __activate_virtualenv || return 1
     else
         echoerror "Must have virtualenv dir specified for -a installs"
@@ -3065,10 +3060,10 @@ install_ubuntu_git_deps() {
 
         # See how we are installing packages
         if [ "${_PIP_ALL}" -eq $BS_TRUE ]; then
-            __PACKAGES="${__PACKAGES} python-dev swig libssl-dev libzmq3 libzmq3-dev"
+            __PACKAGES="${__PACKAGES} python3-dev python3-venv python-apt swig libssl-dev libzmq5 libapt-pkg-dev"
 
             if ! __check_command_exists pip; then
-                __PACKAGES="${__PACKAGES} python-setuptools python-pip"
+                __PACKAGES="${__PACKAGES} python3-setuptools python3-pip"
             fi
 
             # Get just the apt packages that are required to build all the pythons
@@ -3211,6 +3206,11 @@ install_ubuntu_git_post() {
 
         if [ -f /bin/systemctl ] && [ "$DISTRO_MAJOR_VERSION" -ge 16 ]; then
             __copyfile "${_SALT_GIT_CHECKOUT_DIR}/pkg/salt-${fname}.service" "/lib/systemd/system/salt-${fname}.service"
+            # Set service to know about virtualenv
+            if [ "${_VIRTUALENV_DIR}" != "null" ]; then
+                mkdir -p "/etc/systemd/system/salt-${fname}.service.d" || return 1
+                printf "[Service]\nExecStart=\nExecStart=%s/bin/salt-%s\n" "$_VIRTUALENV_DIR" "$fname" > "/etc/systemd/system/salt-${fname}.service.d/override.conf" || return 1
+            fi
 
             # Skip salt-api since the service should be opt-in and not necessarily started on boot
             [ $fname = "api" ] && continue
